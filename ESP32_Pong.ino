@@ -1,5 +1,8 @@
 /*****************************************************************************************
- * ESP32 "fabgl" Pong (Modo 8 Colores - Compatible con v1.0.9 + Core 2.0.14)
+ * INF@MOUS ESP32 PONG "based in fabGL" (Modo 8 Colores - Compatible con v1.0.9 + Core 2.0.14)
+ *
+ * ¡NUEVA RESOLUCIÓN: 800x600 (SVGA)!
+ * ¡NUEVA FUNCIÓN: Velocidad incremental de la pelota!
  *
  * * GUÍA DE MONTAJE (Modo 8 colores, 5 pines VGA):
  * --------------------------------------------------------------------------------------
@@ -59,12 +62,13 @@ const int buttonOnePin = 12; // Botón de inicio/saque
 const int potOnePin    = 34; // Potenciómetro Jugador 1 (Izquierda)
 const int potTwoPin    = 35; // Potenciómetro Jugador 2 (Derecha)
 
-// --- Constantes del Juego (Ajustadas para 320x240) ---
-const int vgaWidth    = 320;
-const int vgaHeight   = 240;
-const int Pad_Length  = 50;  // <-- AJUSTADO
-const int Pad_Width   = 8;
-const int radius      = 5;   // (mitad del lado de la pelota cuadrada)
+// --- Constantes del Juego (Ajustadas para 800x600) ---
+const int vgaWidth    = 800;
+const int vgaHeight   = 600;
+const int Pad_Length  = 125; // Escalado (50 * 2.5)
+const int Pad_Width   = 20;  // Escalado (8 * 2.5)
+const int radius      = 12;  // Escalado (5 * 2.5)
+const int maxDeltaX   = 25;  // <-- NUEVO: Límite de velocidad de la pelota
 
 // --- Colores (Enum de fabgl) ---
 const int COLOR_BLACK   = 0;
@@ -92,11 +96,56 @@ int scoreL = 0;         // Puntuación Jugador 1 (Izquierda)
 int scoreR = 0;         // Puntuación Jugador 2 (Derecha)
 char scoreText[10];     // Texto para mostrar la puntuación
 
-// Estado del juego:
-// 0 = Jugando
-// 1 = Saque Jugador 1
-// 2 = Saque Jugador 2
-int ballStatus = 1;
+int ballStatus = 1;     // 0=Jugando, 1=Saque J1, 2=Saque J2
+
+// --- Variables para la Marcha Imperial (Extendida) ---
+#define NOTE_A4   440
+#define NOTE_F4   349
+#define NOTE_C5   523
+#define NOTE_A5   880
+#define NOTE_F5   698
+#define NOTE_G4S  415  // G#4
+#define NOTE_G4   392
+#define NOTE_DS4  311  // Eb4
+#define NOTE_C4   262
+#define NOTE_AS3  233  // Bb3
+#define REST      0    // Silencio
+
+int baseDuration = 350; // Duración de una negra
+
+// Array de notas (frecuencias)
+const int imperialNotes[] = { 
+  NOTE_A4, NOTE_A4, NOTE_A4, NOTE_F4, NOTE_C5,
+  NOTE_A4, NOTE_F4, NOTE_C5, NOTE_A4,
+  REST,
+  NOTE_A5, NOTE_A5, NOTE_A5, NOTE_F5, NOTE_C5,
+  NOTE_G4S, NOTE_F4, NOTE_C5, NOTE_A4,
+  REST,
+  NOTE_G4, NOTE_DS4, NOTE_C4, NOTE_AS3, NOTE_F4, NOTE_AS3, NOTE_F4, NOTE_C4,
+  REST,
+  NOTE_G4, NOTE_DS4, NOTE_C4, NOTE_AS3, NOTE_F4, NOTE_AS3, NOTE_F4, NOTE_C4,
+  REST
+};
+
+// Array de duraciones
+const float imperialDurations[] = {
+  1, 1, 1, 0.75, 0.25,
+  1, 0.75, 0.25, 1,
+  1, // Silencio
+  1, 1, 1, 0.75, 0.25,
+  1, 0.75, 0.25, 1,
+  1, // Silencio
+  1, 0.75, 0.25, 1, 0.75, 0.25, 1, 1,
+  1, // Silencio
+  1, 0.75, 0.25, 1, 0.75, 0.25, 1, 1,
+  1  // Silencio final
+};
+
+
+const int melodyNoteCount = sizeof(imperialNotes) / sizeof(int);
+int currentNote = 0;
+unsigned long lastNoteTime = 0;
+int currentNoteDuration = 0;
 
 
 //_______________________________________________________________________________________________________
@@ -105,15 +154,15 @@ int ballStatus = 1;
 void setup() {
   // Inicializa el controlador VGA (con 'cast' a gpio_num_t para v1.0.9)
   VGAController.begin((gpio_num_t)redPin, (gpio_num_t)greenPin, (gpio_num_t)bluePin, (gpio_num_t)hsyncPin, (gpio_num_t)vsyncPin);
-  VGAController.setResolution(QVGA_320x240_60Hz); // <-- FIX: Corregido a QVGA_320x240_60Hz
+  VGAController.setResolution(SVGA_800x600_60Hz); // <-- VUELTA A 800x600
 
   // Configura los pines de entrada
-  pinMode(buttonOnePin, INPUT_PULLUP); // Usar PULLUP interno, conectar el botón a GND
+  pinMode(buttonOnePin, INPUT_PULLUP); // Usar PULLUP interno
   pinMode(potOnePin, INPUT);
   pinMode(potTwoPin, INPUT);
 
   // Selecciona una fuente (método v1.0.9)
-  Canvas.selectFont(Canvas.getFontInfo()); // <-- REVERTIDO a la fuente 8x8 (compatible con v1.0.9)
+  Canvas.selectFont(Canvas.getFontInfo()); // Fuente 8x8
   Canvas.setPenColor((fabgl::Color)COLOR_WHITE);
 
   // Dibuja el campo de juego
@@ -125,23 +174,57 @@ void setup() {
   }
 
   // Muestra el mensaje de inicio (CENTRADO)
-  // Ancho de fuente 8x8 = 8 píxeles
-  const char * titleText = "ESP32 PONG BY ERGURO1973";
-  const char * subtitleText = "CREDITS TO Fabrizio Di Vittorio FabGL Creator";
-  Canvas.drawText(vgaWidth / 2 - (strlen(titleText) * 4), vgaHeight / 2 - 20, titleText); // * 4 es 8/2
+  const char * titleText = "INF@MOUS ESP32 PONG";
+  const char * subtitleText = "Based on FabGL";
+  Canvas.drawText(vgaWidth / 2 - (strlen(titleText) * 4), vgaHeight / 2 - 20, titleText);
   Canvas.setPenColor((fabgl::Color)COLOR_YELLOW);
   Canvas.drawText(vgaWidth / 2 - (strlen(subtitleText) * 4), vgaHeight / 2 + 10, subtitleText);
-
 
   // Muestra la puntuación inicial
   printScore();
 
   // Lee las posiciones iniciales de las paletas
   processInputs();
-  drawPad(Pad_Width / 2, potOnePosition, COLOR_BLUE);
-  drawPad(vgaWidth - Pad_Width * 1.5, potTwoPosition, COLOR_RED);
+  drawPad(Pad_Width / 2, potOnePosition, COLOR_GREEN);
+  drawPad(vgaWidth - Pad_Width * 1.5, potTwoPosition, COLOR_CYAN);
   potOnePositionOld = potOnePosition;
   potTwoPositionOld = potTwoPosition;
+
+  // --- NUEVO: Inicia la Marcha Imperial ---
+  lastNoteTime = millis();
+  currentNote = 0;
+  currentNoteDuration = baseDuration * imperialDurations[0];
+  SoundGenerator.playSound(squareWave, imperialNotes[0], currentNoteDuration);
+  currentNote = 1;
+}
+
+
+//_______________________________________________________________________________________________________
+//                             NUEVA FUNCIÓN: Melodía de Intro
+//_______________________________________________________________________________________________________
+void playIntroMelody() {
+  // Si el juego ha empezado (ballStatus == 0), no hagas nada
+  if (ballStatus == 0) {
+    return;
+  }
+
+  // Comprueba si ha pasado suficiente tiempo para tocar la siguiente nota
+  unsigned long currentTime = millis();
+  if (currentTime - lastNoteTime >= (currentNoteDuration + 50)) { // 50ms de pausa entre notas
+    
+    // Coge la siguiente nota y su duración
+    int noteToPlay = imperialNotes[currentNote];
+    currentNoteDuration = baseDuration * imperialDurations[currentNote];
+
+    // Toca la nota (si no es un silencio)
+    if (noteToPlay > 0) {
+      SoundGenerator.playSound(squareWave, noteToPlay, currentNoteDuration);
+    }
+    
+    // Actualiza el tiempo y el índice de la nota
+    lastNoteTime = currentTime;
+    currentNote = (currentNote + 1) % melodyNoteCount; // Vuelve al inicio si llega al final
+  }
 }
 
 
@@ -149,24 +232,26 @@ void setup() {
 //                                         MAIN LOOP
 //_______________________________________________________________________________________________________
 void loop() {
+  playIntroMelody(); // Llama al gestor de la melodía en cada loop
+  
   processInputs();
 
   // Dibuja la pelota si se está moviendo
   if (ballStatus == 0) {
-    drawBall(cx, cy, COLOR_GREEN);
+    drawBall(cx, cy, COLOR_YELLOW);
   }
 
   // --- Mover Paleta 1 (Izquierda) ---
   if (potOnePosition != potOnePositionOld) {
     drawPad(Pad_Width / 2, potOnePositionOld, COLOR_BLACK);
-    drawPad(Pad_Width / 2, potOnePosition, COLOR_BLUE);
+    drawPad(Pad_Width / 2, potOnePosition, COLOR_GREEN);
     potOnePositionOld = potOnePosition;
   }
 
   // --- Mover Paleta 2 (Derecha) ---
   if (potTwoPosition != potTwoPositionOld) {
     drawPad(vgaWidth - Pad_Width * 1.5, potTwoPositionOld, COLOR_BLACK);
-    drawPad(vgaWidth - Pad_Width * 1.5, potTwoPosition, COLOR_RED);
+    drawPad(vgaWidth - Pad_Width * 1.5, potTwoPosition, COLOR_CYAN);
     potTwoPositionOld = potTwoPosition;
   }
 
@@ -174,11 +259,14 @@ void loop() {
 
   // Comprueba si se pulsa el botón para sacar
   if ((buttonOneStatus == LOW) && (ballStatus > 0)) {
+    
+    SoundGenerator.play(false); // Detiene la melodía de intro
+    
     ballStatus = 0;
     Canvas.setBrushColor((fabgl::Color)COLOR_BLACK);
-    // Borra los dos mensajes de texto (ajustado para fuente 8x8)
-    Canvas.fillRectangle(vgaWidth / 2 - 110, vgaHeight / 2 - 25, vgaWidth / 2 + 110, vgaHeight / 2 + 25);
-    ballIni();
+    // Borra el texto de inicio (ajustado para 800x600)
+    Canvas.fillRectangle(vgaWidth / 2 - 200, vgaHeight / 2 - 25, vgaWidth / 2 + 200, vgaHeight / 2 + 25);
+    ballIni(); // Toca el sonido de saque
   }
 
   // Mueve la pelota si el juego está activo
@@ -187,7 +275,7 @@ void loop() {
     ballPosition();
   }
 
-  delay(10); // Puedes ajustar este delay (10-15) para cambiar la velocidad general del juego
+  delay(10);
 }
 
 
@@ -195,7 +283,7 @@ void loop() {
 void processInputs() {
   potOnePosition = analogRead(potOnePin);
   potTwoPosition = analogRead(potTwoPin);
-  // El map() se ajusta automáticamente a vgaHeight y Pad_Length
+  // El map() se ajusta automáticamente a la nueva vgaHeight
   potOnePosition = map(potOnePosition, 0, 4095, Pad_Length / 2, vgaHeight - Pad_Length / 2);
   potTwoPosition = map(potTwoPosition, 0, 4095, Pad_Length / 2, vgaHeight - Pad_Length / 2);
   buttonOneStatus = digitalRead(buttonOnePin);
@@ -203,7 +291,6 @@ void processInputs() {
 
 //_______________________________________________________________________________________________________
 void drawBall(int cx, int cy, int myColor) {
-  // Dibuja una pelota CUADRADA (compatible con v1.0.9)
   Canvas.setBrushColor((fabgl::Color)myColor);
   Canvas.fillRectangle(cx - radius, cy - radius, cx + radius - 1, cy + radius - 1);
 }
@@ -221,12 +308,12 @@ void ballPosition() {
       drawBall(cx, cy, COLOR_BLACK);
       cx = Pad_Width * 1.5 + radius + 1;
       cy = potOnePosition;
-      drawBall(cx, cy, COLOR_GREEN);
+      drawBall(cx, cy, COLOR_YELLOW);
     } else {
       drawBall(cx, cy, COLOR_BLACK);
       cx = vgaWidth - Pad_Width * 1.5 - radius - 1;
       cy = potTwoPosition;
-      drawBall(cx, cy, COLOR_GREEN);
+      drawBall(cx, cy, COLOR_YELLOW);
     }
     return;
   }
@@ -240,16 +327,34 @@ void ballPosition() {
   if (cx > (vgaWidth - Pad_Width * 1.5 - radius) && (cy > potTwoPosition - Pad_Length / 2) && (cy < potTwoPosition + Pad_Length / 2)) {
     cx = cx0;
     deltaX = -deltaX;
+    
+    // --- NUEVO: Incrementar velocidad ---
+    if (deltaX > 0) {
+      if (deltaX < maxDeltaX) deltaX += 1;
+    } else {
+      if (deltaX > -maxDeltaX) deltaX -= 1;
+    }
+    // --- FIN NUEVO ---
+    
     deltaY += int((cy - potTwoPosition) / (Pad_Length / 6));
-    SoundGenerator.playSound(squareWave, 440, 50); // <-- SONIDO CORRECTO
+    SoundGenerator.playSound(squareWave, 440, 50); // SONIDO CORRECTO
   }
 
   // Colisión con la Paleta 1 (Izquierda)
   if ((cx < (Pad_Width * 1.5 + radius)) && (cy > potOnePosition - Pad_Length / 2) && (cy < potOnePosition + Pad_Length / 2)) {
     cx = cx0;
     deltaX = -deltaX;
+
+    // --- NUEVO: Incrementar velocidad ---
+    if (deltaX > 0) {
+      if (deltaX < maxDeltaX) deltaX += 1;
+    } else {
+      if (deltaX > -maxDeltaX) deltaX -= 1;
+    }
+    // --- FIN NUEVO ---
+    
     deltaY += int((cy - potOnePosition) / (Pad_Length / 6));
-    SoundGenerator.playSound(squareWave, 440, 50); // <-- SONIDO CORRECTO
+    SoundGenerator.playSound(squareWave, 440, 50); // SONIDO CORRECTO
   }
 
   // Punto para Jugador 2 (Pared izquierda)
@@ -259,7 +364,7 @@ void ballPosition() {
     ballStatus = 2;
     deltaX = 0;
     deltaY = 0;
-    SoundGenerator.playSound(squareWave, 880, 150); // <-- SONIDO CORRECTO
+    SoundGenerator.playSound(squareWave, 880, 150); // SONIDO CORRECTO
   }
 
   // Punto para Jugador 1 (Pared derecha)
@@ -269,7 +374,7 @@ void ballPosition() {
     ballStatus = 1;
     deltaX = 0;
     deltaY = 0;
-    SoundGenerator.playSound(squareWave, 880, 150); // <-- SONIDO CORRECTO
+    SoundGenerator.playSound(squareWave, 880, 150); // SONIDO CORRECTO
   }
 
   // Ganar
@@ -281,12 +386,12 @@ void ballPosition() {
   if ((cy > vgaHeight - radius) || (cy < radius)) {
     cy = cy0;
     deltaY = -deltaY;
-    SoundGenerator.playSound(squareWave, 220, 30); // <-- SONIDO CORRECTO
+    SoundGenerator.playSound(squareWave, 220, 30); // SONIDO CORRECTO
   }
 
-  // Límite de velocidad vertical
-  if (deltaY > 5) deltaY = 5;
-  if (deltaY < -5) deltaY = -5;
+  // Límite de velocidad vertical (Escalado)
+  if (deltaY > 12) deltaY = 12;
+  if (deltaY < -12) deltaY = -12;
 }
 
 //_______________________________________________________________________________________________________
@@ -294,8 +399,8 @@ void ballIni() {
   drawBall(cx, cy, COLOR_BLACK);
   cx = vgaWidth / 2;
   cy = vgaHeight / 2;
-  deltaX = 4;
-  deltaY = random(-3, 4);
+  deltaX = 10; // Velocidad base escalada (4 * 2.5)
+  deltaY = random(-7, 8); // Ángulo escalado
 
   if (ballStatus == 2) {
     deltaX = -deltaX;
@@ -308,10 +413,9 @@ void ballIni() {
 void printScore() {
   sprintf(scoreText, "%d | %d", scoreL, scoreR);
   Canvas.setBrushColor((fabgl::Color)COLOR_BLACK);
-  // Ajustado para fuente de 8px de alto
+  // Las coordenadas del marcador están bien, se centran solas
   Canvas.fillRectangle(vgaWidth / 2 - 40, 10, vgaWidth / 2 + 40, 18);
   Canvas.setPenColor((fabgl::Color)COLOR_WHITE);
-  // Ajuste de texto de puntuación para fuente 8x8 (el 4 es la mitad de 8)
   Canvas.drawText(vgaWidth / 2 - (strlen(scoreText) * 4), 10, scoreText);
 }
 
@@ -322,15 +426,14 @@ void gameOver() {
   const char * gano2Text = "Jugador 2 GANA!";
   
   if (scoreL > 9) {
-    Canvas.drawText(vgaWidth / 2 - (strlen(gano1Text) * 4), vgaHeight / 2, gano1Text); // Posición Y 
+    Canvas.drawText(vgaWidth / 2 - (strlen(gano1Text) * 4), vgaHeight / 2, gano1Text);
   } else {
-    Canvas.drawText(vgaWidth / 2 - (strlen(gano2Text) * 4), vgaHeight / 2, gano2Text); // Posición Y
+    Canvas.drawText(vgaWidth / 2 - (strlen(gano2Text) * 4), vgaHeight / 2, gano2Text);
   }
 
   delay(3000);
 
   Canvas.setBrushColor((fabgl::Color)COLOR_BLACK);
-  // Ajustado para borrar texto de 8px de alto
   Canvas.fillRectangle(vgaWidth / 2 - (strlen(gano2Text) * 4) - 5 , vgaHeight / 2, vgaWidth / 2 + (strlen(gano2Text) * 4) + 5, vgaHeight / 2 + 10);
 
   scoreL = 0;
@@ -340,7 +443,14 @@ void gameOver() {
   ballStatus = 1;
 
   // Vuelve a mostrar el mensaje de inicio (CENTRADO)
-  const char * subtitleText = "PLAY AGAIN !";
+  const char * subtitleText = "INF@MOUS ESP32 PONG"; // Tu subtítulo personalizado
   Canvas.setPenColor((fabgl::Color)COLOR_YELLOW);
   Canvas.drawText(vgaWidth / 2 - (strlen(subtitleText) * 4), vgaHeight / 2 + 10, subtitleText);
+  
+  // --- NUEVO: Reinicia la Marcha Imperial ---
+  lastNoteTime = millis();
+  currentNote = 0; // Empieza desde el principio
+  currentNoteDuration = baseDuration * imperialDurations[0];
+  SoundGenerator.playSound(squareWave, imperialNotes[0], currentNoteDuration);
+  currentNote = 1;
 }
