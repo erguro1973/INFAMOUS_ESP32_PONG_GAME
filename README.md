@@ -1,5 +1,5 @@
 
-# ESP32 FabGL Pong
+# INF@MOUS ESP32 PONG GAME
 
 This is a classic Pong project for the ESP32, using the incredible FabGL library to generate VGA video and sound. The game is controlled by two potentiometers (one for each player) and a button to serve.
 
@@ -48,7 +48,7 @@ This project uses the 8-color VGA mode (5 pins) to simplify the wiring.
 
 
 
-# ESP32 FabGL Pong
+# INF@MOUS ESP32 PONG GAME
 
 Este es un proyecto clásico de Pong para el ESP32, utilizando la increíble librería FabGL para generar video VGA y sonido. El juego está controlado por dos potenciómetros (uno para cada jugador) y un botón para el saque.
 
