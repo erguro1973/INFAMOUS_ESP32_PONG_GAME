@@ -38,8 +38,8 @@ This project uses the 8-color VGA mode (5 pins) to simplify the wiring.
 | Ground | `GND` | VGA Pins 5, 6, 7, 8, 10 |
 | | | |
 | **CONTROLS** | | |
-| P1 (Pot) | `GPIO 34` | Center pin (Wiper). The other two to 3.3V & GND. |
-| P2 (Pot) | `GPIO 35` | Center pin (Wiper). The other two to 3.3V & GND. |
+| P1 (Pot B10k) | `GPIO 34` | Center pin (Wiper). The other two to 3.3V & GND. |
+| P2 (Pot B10k) | `GPIO 35` | Center pin (Wiper). The other two to 3.3V & GND. |
 | Serve Button | `GPIO 12` | One side of the button. The other side to `GND`. |
 | | | |
 | **SOUND** | | |
@@ -85,8 +85,8 @@ Este proyecto utiliza el modo VGA de 8 colores (5 pines) para simplificar el mon
 | Tierra | `GND` | VGA Pines 5, 6, 7, 8, 10 |
 | | | |
 | **CONTROLES** | | |
-| J1 (Poti) | `GPIO 34` | Pin central (Wiper). El otro a 3.3V y GND. |
-| J2 (Poti) | `GPIO 35` | Pin central (Wiper). El otro a 3.3V y GND. |
+| J1 (Pot B10k) | `GPIO 34` | Pin central (Wiper). El otro a 3.3V y GND. |
+| J2 (Pot B10k) | `GPIO 35` | Pin central (Wiper). El otro a 3.3V y GND. |
 | Botón Saque | `GPIO 12` | Un lado del botón. El otro a `GND`. |
 | | | |
 | **SONIDO** | | |
