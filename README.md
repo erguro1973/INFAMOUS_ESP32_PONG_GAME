@@ -1,5 +1,5 @@
 
-# INF@MOUS ESP32 PONG GAME
+
 
 # INF@MOUS ESP32 PONG (based on FabGL)
 
@@ -64,7 +64,7 @@ This project uses the 8-color VGA mode (5 pins) to simplify the wiring.
 4.  **Play!**
 
 
-# INF@MOUS ESP32 PONG GAME
+
 
 # INF@MOUS ESP32 PONG (basado en FabGL)
 
